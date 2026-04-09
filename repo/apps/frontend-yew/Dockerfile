@@ -2,7 +2,8 @@ FROM rust:latest AS builder
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates curl && rm -rf /var/lib/apt/lists/*
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install trunk@0.21.14
+RUN curl -sL https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz \
+    | tar -xzC /usr/local/bin
 COPY Cargo.toml Cargo.lock ./
 COPY apps ./apps
 COPY crates ./crates
