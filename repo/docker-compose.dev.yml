@@ -1,0 +1,30 @@
+# docker-compose.dev.yml — local development overrides
+#
+# Restores permissive defaults for faster iteration:
+#   - Seeds enabled so demo data loads automatically on first start.
+#   - Higher rate and daily limits so API tests and manual exploration don't
+#     hit throttles.
+#   - HTTP-only proxy (no TLS cert required).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# Or set as the default override by adding COMPOSE_FILE to your shell env:
+#   export COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+
+services:
+  backend-api:
+    environment:
+      APP__RUN_SEEDS: "true"
+      RATE_LIMIT_PER_MIN: "600"
+      DAILY_LIMIT_PER_SKU: "500"
+      COOKIE_SECURE: "false"
+      # Dev overrides: in-memory rate limiter avoids needing the rate_limit_log
+      # table during local development; compat signing avoids requiring the body
+      # hash header so existing test scripts continue to work unchanged.
+      APP__RATE_LIMIT_BACKEND: "memory"
+      APP__SIGNING_MODE: "compat"
+
+  proxy:
+    volumes:
+      - ./proxy/nginx.dev.conf:/etc/nginx/nginx.conf:ro

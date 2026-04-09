@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: silveroak_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: silveroak
+      POSTGRES_PASSWORD: silveroak_dev
+      POSTGRES_DB: silveroak
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U silveroak -d silveroak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend-api:
+    build:
+      context: .
+      dockerfile: apps/backend-api/Dockerfile
+    container_name: silveroak_api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://silveroak:silveroak_dev@postgres:5432/silveroak
+      RUST_LOG: info,backend_api=debug
+      APP__SERVER__HOST: 0.0.0.0
+      APP__SERVER__PORT: "8080"
+      APP__RUN_MIGRATIONS: "true"
+      # Seeds: off by default (production-safe). Set APP__RUN_SEEDS=true in
+      # docker-compose.dev.yml or via environment to enable demo data on first start.
+      APP__RUN_SEEDS: ${APP__RUN_SEEDS:-false}
+      # AES-256-GCM key for field-level encryption of wellness notes.
+      # This is a DEV-ONLY fallback — generate a real 32-byte key for production:
+      #   openssl rand -base64 32
+      SILVEROAK_FIELD_KEY: "c2lsdmVyb2FrLWRldi1rZXktTk9ULUZPUi1QUk9EVUNUSU9O"
+      COOKIE_SECURE: "false"
+      # Rate limits: conservative secure defaults. Override in docker-compose.dev.yml
+      # for higher throughput during local development and testing.
+      RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-120}
+      DAILY_LIMIT_PER_SKU: ${DAILY_LIMIT_PER_SKU:-50}
+      # Distributed rate limiting: postgres backend ensures per-IP limits are
+      # enforced globally across all API replicas.  Override to "memory" in
+      # docker-compose.dev.yml for local single-container development.
+      APP__RATE_LIMIT_BACKEND: ${APP__RATE_LIMIT_BACKEND:-postgres}
+      # Signing mode: "dual" accepts strict (6-field) and compat (4-field)
+      # requests, logging a WARN for compat fallbacks so you can track rollout.
+      # dev override sets "compat"; prod override sets "strict" after burn-in.
+      APP__SIGNING_MODE: ${APP__SIGNING_MODE:-dual}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend-worker:
+    build:
+      context: .
+      dockerfile: apps/backend-worker/Dockerfile
+    container_name: silveroak_worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://silveroak:silveroak_dev@postgres:5432/silveroak
+      RUST_LOG: info,backend_worker=debug
+      SILVEROAK_FIELD_KEY: "c2lsdmVyb2FrLWRldi1rZXktTk9ULUZPUi1QUk9EVUNUSU9O"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend-api:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend-yew/Dockerfile
+    container_name: silveroak_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend-api
+    ports:
+      - "8081:80"
+
+  proxy:
+    image: nginx:1.27-alpine
+    container_name: silveroak_proxy
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend-api
+    ports:
+      - "8000:80"
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+
+volumes:
+  postgres_data:
+    name: silveroak_postgres_data

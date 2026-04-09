@@ -1,0 +1,49 @@
+# docker-compose.prod.yml — production-like overrides
+#
+# Adds TLS termination, a HTTP→HTTPS redirect, and production-safe settings.
+#
+# Prerequisites before starting:
+#   1. Place your TLS certificate and key at the paths pointed to by TLS_CERT_DIR
+#      (default: ./proxy/certs):
+#        ./proxy/certs/fullchain.pem   — certificate + intermediates
+#        ./proxy/certs/privkey.pem     — private key  (chmod 0600)
+#
+#      To generate a self-signed cert for smoke-testing (NOT for real production):
+#        mkdir -p proxy/certs
+#        openssl req -x509 -newkey rsa:4096 -days 365 -nodes \
+#          -keyout proxy/certs/privkey.pem \
+#          -out    proxy/certs/fullchain.pem \
+#          -subj   "/CN=silveroak.local"
+#
+#   2. Set SILVEROAK_FIELD_KEY to a real 32-byte secret:
+#        export SILVEROAK_FIELD_KEY=$(openssl rand -base64 32)
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+#
+# Seeds are off by default in the base compose — do NOT pass APP__RUN_SEEDS=true
+# in production environments.
+
+services:
+  backend-api:
+    environment:
+      COOKIE_SECURE: "true"
+      # Production signing: strict mode requires all clients to send
+      # x-silveroak-body-hash.  Enable only after running in dual mode and
+      # confirming the WARN "dual-mode compat fallback" log rate is zero.
+      # Rollback: set APP__SIGNING_MODE=dual (no redeploy required, env-only).
+      APP__SIGNING_MODE: "strict"
+      # Production rate limiting: postgres backend is already set in the base
+      # docker-compose.yml.  Explicitly restated here for clarity.
+      APP__RATE_LIMIT_BACKEND: "postgres"
+    # Do not expose the API port directly to the host in production;
+    # all traffic should flow through the TLS proxy.
+    ports: []
+
+  proxy:
+    ports:
+      - "80:80"    # HTTP → HTTPS redirect
+      - "443:443"  # TLS termination
+    volumes:
+      - ./proxy/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ${TLS_CERT_DIR:-./proxy/certs}:/etc/nginx/certs:ro

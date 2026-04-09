@@ -1,0 +1,17 @@
+[package]
+name = "unit_tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# This crate contains no library source — only integration-style tests that
+# exercise types from the `shared`, `domain`, and `application` crates without
+# touching the database or HTTP stack.
+
+[dev-dependencies]
+shared = { path = "../crates/shared" }
+domain = { path = "../crates/domain" }
+application = { path = "../crates/application" }
+uuid = { workspace = true }
+serde_json = { workspace = true }

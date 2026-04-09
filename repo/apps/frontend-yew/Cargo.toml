@@ -1,0 +1,30 @@
+[package]
+name = "frontend-yew"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "frontend-yew"
+path = "src/main.rs"
+
+[dependencies]
+yew = { workspace = true }
+yew-router = { workspace = true }
+gloo = { workspace = true, features = ["net", "storage", "timers", "dialogs", "utils"] }
+js-sys = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true, features = ["wasmbind"] }
+uuid = { workspace = true, features = ["js"] }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+web-sys = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+shared = { workspace = true }

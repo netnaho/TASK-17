@@ -1,0 +1,12 @@
+target/
+**/target/
+.git/
+.gitignore
+.env
+.env.local
+*.md
+!README.md
+dist/
+apps/frontend-yew/dist/
+.idea/
+.vscode/

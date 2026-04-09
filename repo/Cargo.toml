@@ -1,0 +1,60 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/backend-api",
+    "apps/backend-worker",
+    "apps/frontend-yew",
+    "crates/domain",
+    "crates/application",
+    "crates/infrastructure",
+    "crates/shared",
+    "unit_tests",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Proprietary"
+publish = false
+
+[workspace.dependencies]
+actix-web = "4"
+actix-cors = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "macros", "migrate"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+thiserror = "1"
+anyhow = "1"
+config = "0.14"
+dotenvy = "0.15"
+async-trait = "0.1"
+argon2 = "0.5"
+rand = "0.8"
+hex = "0.4"
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+aes-gcm = "0.10"
+parking_lot = "0.12"
+futures-util = "0.3"
+csv = "1"
+calamine = { version = "0.23", features = ["dates"] }
+actix-multipart = "0.6"
+rust_xlsxwriter = "0.7"
+tempfile = "3"
+yew = { version = "0.21", features = ["csr"] }
+yew-router = "0.18"
+gloo = "0.11"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["HtmlInputElement", "File", "FormData", "FileList", "Blob", "BlobPropertyBag", "Url", "HtmlElement"] }
+js-sys = "0.3"
+domain = { path = "crates/domain" }
+application = { path = "crates/application" }
+infrastructure = { path = "crates/infrastructure" }
+shared = { path = "crates/shared" }

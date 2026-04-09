@@ -1,0 +1,17 @@
+/target
+**/target
+**/*.rs.bk
+Cargo.lock.bak
+.env
+.env.local
+*.swp
+.DS_Store
+node_modules/
+dist/
+apps/frontend-yew/dist/
+.idea/
+.vscode/
+*.log
+.tmp/
+.claude/
+CLAUDE.md
