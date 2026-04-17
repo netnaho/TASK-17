@@ -553,17 +553,29 @@ pub async fn log_wellness_activity(
     .await?;
 
     // Update personal bests if this duration is a new record for the student+type.
+    // `achieved_on` is NOT NULL in the schema (migrations/0006_compliance.sql:98).
     if let Some(sid) = student_id {
         sqlx::query(
-            "INSERT INTO wellness_personal_bests (student_id, activity_type, best_duration_minutes)
-             VALUES ($1, $2, $3)
+            "INSERT INTO wellness_personal_bests
+                 (student_id, activity_type, best_duration_minutes, achieved_on)
+             VALUES ($1, $2, $3, $4)
              ON CONFLICT (student_id, activity_type)
-             DO UPDATE SET best_duration_minutes =
-                 GREATEST(wellness_personal_bests.best_duration_minutes, EXCLUDED.best_duration_minutes)",
+             DO UPDATE SET
+                 best_duration_minutes =
+                     GREATEST(wellness_personal_bests.best_duration_minutes,
+                              EXCLUDED.best_duration_minutes),
+                 achieved_on = CASE
+                     WHEN EXCLUDED.best_duration_minutes >
+                          wellness_personal_bests.best_duration_minutes
+                     THEN EXCLUDED.achieved_on
+                     ELSE wellness_personal_bests.achieved_on
+                 END,
+                 updated_at = NOW()",
         )
         .bind(sid)
         .bind(&activity_type)
         .bind(duration_minutes)
+        .bind(stored_date)
         .execute(pool)
         .await?;
     }

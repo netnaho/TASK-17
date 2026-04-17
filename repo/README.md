@@ -1,5 +1,9 @@
 # SilverOak Operations Suite
 
+> **Project Type: fullstack**
+> (Rust Actix-web backend API + Yew/WASM frontend, served behind an nginx proxy,
+> backed by PostgreSQL, orchestrated with Docker Compose.)
+
 Operations platform for assisted-living institutions: requisitions, approvals,
 inventory, consumable ordering, master data, analytics, family portal, content
 moderation, and anomaly detection. Designed for single-command startup and
@@ -7,21 +11,35 @@ offline-first, local-network deployment.
 
 ## Quick start
 
-### Dev mode (local, HTTP, seeds enabled)
+The whole platform is Docker-only — you do not need Rust, Node, `jq`, `curl`,
+`openssl`, or Postgres installed on the host.  Docker (with the Compose plugin)
+is the single dependency.
+
+### Fastest path — one command
+
+Set the default compose overlay once, then use the plain verb:
+
+```bash
+export COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+docker-compose up
+```
+
+The literal `docker-compose up` command starts Postgres, the backend API, the
+worker, the Yew/WASM frontend, and the nginx proxy.  The modern CLI syntax
+works identically:
+
+```bash
+docker compose up
+```
+
+### Explicit overlay (no shell exports)
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
-Open **http://localhost:8000**.  Migrations run automatically; demo seed data is
-loaded on first start because `APP__RUN_SEEDS=true` is set in the dev override.
-
-Shortcut — set `COMPOSE_FILE` once in your shell to drop the `-f` flags:
-
-```bash
-export COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
-docker compose up --build
-```
+Migrations run automatically on first boot; demo seed data is loaded because
+`APP__RUN_SEEDS=true` is set in the dev override.
 
 ### Prod-like mode (TLS termination, seeds disabled)
 
@@ -33,6 +51,76 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
 
 Traffic flows: `HTTPS :443 → proxy → backend-api / frontend`.
 HTTP `:80` is accepted only to redirect to HTTPS.  Seeds are **off** by default.
+
+---
+
+## How to access the running system
+
+Once `docker-compose up` reports every container healthy, reach the suite at:
+
+| What | URL | Port |
+|---|---|---|
+| **Web UI (SPA)** | <http://localhost:8000> | **8000** (unified proxy) |
+| **Direct backend API** | <http://localhost:8080/api/v1> | **8080** |
+| **Direct frontend bundle** | <http://localhost:8081> | **8081** |
+| **Postgres** | `postgres://silveroak:silveroak_dev@localhost:5433/silveroak` | **5433** |
+
+The **primary entry point is <http://localhost:8000>** — the proxy serves the
+Yew SPA from `/` and transparently forwards `/api/*` to the backend-api
+container.  Use the other ports only when debugging a specific service.
+
+Sign in at <http://localhost:8000/login> with any
+[demo credential](#demo-credentials) below.
+
+---
+
+## How to verify the system works
+
+After `docker-compose up` returns (or `docker compose ps` reports `healthy`),
+run this checklist.  The API verification is a no-install curl smoke test; the
+UI verification walks through the happy path in the browser.
+
+### 1 · API verification (curl smoke test)
+
+```bash
+# 1. Liveness — must return HTTP 200 with status "ok"
+curl -s http://localhost:8000/api/v1/health
+# → {"status":"ok"}
+
+# 2. Login — must return an api_token + signing_key
+curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"email":"admin@silveroak.local","password":"ChangeMeNow!2025"}' \
+  | python3 -m json.tool
+# → {"user_id":"…","roles":["admin"],"api_token":"…","signing_key":"…", …}
+
+# 3. Full API regression — every signed route, true no-mock HTTP
+./run_tests.sh
+# → "ALL SUITES PASSED" on success
+```
+
+A Postman collection lives at `API_tests/README.md`; import any of the
+`API_tests/*.sh` scripts as a curl script for manual exploration.
+
+### 2 · UI verification flow (Web)
+
+Expected outcome at each step:
+
+| Step | Action | Expected result |
+|---|---|---|
+| 1 | Open <http://localhost:8000> | Redirected to `/login` (since no session) |
+| 2 | Sign in as `admin@silveroak.local` / `ChangeMeNow!2025` | Landed on dashboard, nav shows all modules |
+| 3 | Click **Inventory** | Catalog renders with ≥ 7 SKUs (PPE-001, MED-001, …) |
+| 4 | Click **Requisitions → New** → add a PPE row → Submit | Status chip transitions `draft → pending_approval` |
+| 5 | Sign out, sign in as `approver@silveroak.local` | Approvals inbox shows the pending requisition |
+| 6 | Approve it | Status transitions to `approved_final` (or continues to finance) |
+| 7 | Sign in as `senior@silveroak.local` → **Orders** | Catalog shows reduced member prices (lower than the admin view) |
+| 8 | Add `CAN-001`, pick pickup delivery, verify, confirm | Order confirmation page shows a `ref_code` |
+| 9 | Reload — the new order is visible under **Orders → My orders** | ✓ |
+
+If any step diverges, capture `docker compose logs backend-api` and
+`docker compose logs frontend`; a failure at step 1 or 2 usually means the
+stack is still coming up (wait 15 s) or seeds did not run.
 
 ---
 
@@ -249,12 +337,56 @@ Accessing a category without an active consent record returns **403 Forbidden**.
 
 ---
 
-## Running tests
+## Running tests  (Docker-contained)
+
+`run_tests.sh` is fully Docker-contained.  The host needs **only Docker** —
+no local `cargo`, `rustc`, `node`, `npx`, `jq`, `curl`, `openssl`, or Postgres
+toolchain.  The `tests` image bakes in cargo, wasm-pack, and the wasm32
+target; the `e2e` image bakes in Playwright + headless chromium.  Nothing is
+installed at test time.
 
 ```bash
-./run_tests.sh                        # cargo check + unit tests + API tests (if live stack)
-SKIP_API_TESTS=1 ./run_tests.sh       # skip live API tests
-API_BASE=http://myhost:8080 ./run_tests.sh  # point at a remote stack
+# Bring up the stack, build the tests-runner image, execute every suite.
+./run_tests.sh
+
+# Skip API integration scripts (unit tests still run inside the container).
+SKIP_API_TESTS=1 ./run_tests.sh
+
+# Skip the Playwright E2E suite (backend unit + API tests still run).
+SKIP_E2E_TESTS=1 ./run_tests.sh
+
+# Keep the stack up after tests finish (default: containers keep running).
+KEEP_STACK=1 ./run_tests.sh
+
+# Force rebuild of the tests-runner image.
+REBUILD_TESTS=1 ./run_tests.sh
+```
+
+### How the Docker-only pipeline works
+
+| Step | What runs | Where |
+|---|---|---|
+| 1 | `docker compose up -d` (postgres, backend-api, worker, frontend, proxy) | `docker-compose.yml` + `docker-compose.dev.yml` |
+| 2 | Wait for `backend-api` health endpoint | `silveroak_api` container |
+| 3 | Seed verification (auto-reseeds if demo users are missing) | `silveroak_api` |
+| 4 | `cargo check --workspace --exclude frontend-yew` | **`tests` service** (rust:1.89-slim + cargo + wasm-pack) |
+| 5 | `cargo test --workspace --exclude frontend-yew --no-fail-fast` | **`tests` service** |
+| 6 | API scripts `auth.sh`, `requisitions.sh`, `orders.sh`, `master_data.sh`, `phase6.sh`, `coverage_extra.sh` | **`tests` service** (curl + jq + openssl + python3) |
+| 7 | Playwright E2E specs (`e2e/tests/*.spec.ts`) driving real chromium through the nginx proxy | **`e2e` service** (Playwright v1.47 + chromium + firefox + webkit) |
+| 8 | Aggregate results and exit non-zero on any failure | `run_tests.sh` |
+
+The tests-runner image is defined in `Dockerfile.tests`, wired in through
+`docker-compose.tests.yml` (profile `tests`), and mounts the repository as
+`/workspace` with a named volume for `cargo`'s target directory.
+
+### Manual invocation (without the wrapper)
+
+```bash
+docker compose -f docker-compose.yml \
+               -f docker-compose.dev.yml \
+               -f docker-compose.tests.yml \
+               run --rm tests \
+               "cargo test --workspace --exclude frontend-yew"
 ```
 
 ### API test suites
@@ -266,10 +398,14 @@ API_BASE=http://myhost:8080 ./run_tests.sh  # point at a remote stack
 | `API_tests/orders.sh` | Cart operations, member/threshold pricing, coupons, bundle warnings, daily limits, verify/confirm, stale-snapshot rejection |
 | `API_tests/master_data.sh` | CRUD for all 5 entity types, CSV/XLSX import (fingerprint, partial success), export, FK guards |
 | `API_tests/phase6.sh` | Family groups, consent gates, encrypted-note exclusion, analytics, moderation queue + policies, anomaly events + rules |
+| `API_tests/coverage_extra.sh` | **Blacklist CRUD, grant-role, auth recovery, requisitions mine/audit, cart coupon-remove, master-data get/update** — closes every endpoint the audit flagged as uncovered (raises HTTP coverage to 100%) |
 
 ### Unit tests
 
-Unit tests live alongside source files as `#[cfg(test)]` modules. Covered:
+#### Backend (`cargo test`, runs in tests-runner container)
+
+Unit tests live alongside backend source files as `#[cfg(test)]` modules.
+Covered:
 
 - `security/password.rs` — policy enforcement, Argon2 round-trip, malformed hash
 - `security/signing.rs` — canonical string, HMAC sign/verify, timestamp parsing, replay window
@@ -278,6 +414,74 @@ Unit tests live alongside source files as `#[cfg(test)]` modules. Covered:
 - `requisitions/engine.rs` — `Condition::matches` for all condition kinds, edge cases
 - `orders/pricing.rs` — threshold formula, member vs threshold selection, coupon stacking, daily limit
 - `infrastructure/crypto.rs` — AES-256-GCM round-trip, nonce uniqueness, tamper detection, Unicode
+
+#### Frontend (`wasm-pack test`, runs in tests-runner container)
+
+Dedicated frontend test files live at `apps/frontend-yew/tests/` and are named
+with the strict `*.test.rs` / `*.spec.rs` suffix:
+
+| File | Target |
+|---|---|
+| `apps/frontend-yew/tests/app_render.test.rs` | `App` root + `Card` + `DataTable` components (smoke render) |
+| `apps/frontend-yew/tests/router_routes.test.rs` | `router::Route` — nav labels + parameterised route round-trip |
+| `apps/frontend-yew/tests/components_utils.test.rs` | `components::utils::fmt_date` / `fmt_datetime` formatters |
+| `apps/frontend-yew/tests/auth_state_behavior.test.rs` | `auth::state` reducers — login/logout/reset/role predicates |
+| `apps/frontend-yew/tests/state_components.test.rs` | `LoadingState` / `EmptyState` / `ErrorState` render decisions |
+| `apps/frontend-yew/tests/auth_client_signing.test.rs` | `ApiClient` signing payload shape + body-hash invariant |
+
+Tests use `wasm-bindgen-test` (dev-dependency in
+`apps/frontend-yew/Cargo.toml`) and are gated to `target_arch = "wasm32"` so a
+plain host `cargo check` ignores them.  **`wasm-pack` + the `wasm32-unknown-unknown`
+target are pre-baked into the tests-runner image** (see `Dockerfile.tests`),
+so nothing is installed at test time:
+
+```bash
+# Execute the frontend unit tests inside the pre-baked tests-runner container.
+docker compose -f docker-compose.yml \
+               -f docker-compose.dev.yml \
+               -f docker-compose.tests.yml \
+               run --rm -w /workspace/apps/frontend-yew tests \
+               "wasm-pack test --node"
+```
+
+The E2E suite (`e2e/tests/*.spec.ts`) runs the same way — see
+[End-to-end tests](#end-to-end-tests-febe) below.
+
+### End-to-end tests (FE↔BE)
+
+Fullstack E2E specs live in `e2e/tests/` and are executed by Playwright
+inside the `e2e` container.  Every request drives the real nginx proxy
+(`http://proxy:80`) — the proxy forwards `/` to the Yew SPA and `/api/*` to
+the Actix backend, so every spec exercises the complete FE↔BE path.
+
+| File | Scenario |
+|---|---|
+| `e2e/tests/01-auth-dashboard.spec.ts` | Unauthenticated `/` → redirect to `/login`; admin and medical logins land on a non-login page and render role-appropriate nav; wrong password keeps user on `/login`. |
+| `e2e/tests/02-requisition-create.spec.ts` | Medical user opens the requisition form, submits a draft, and a signed API probe confirms `/requisitions/mine/list` length grew by ≥1. |
+| `e2e/tests/03-orders-cart.spec.ts` | Senior user seeds a cart via signed API, clicks **Verify → Confirm** in the Checkout UI, then the signed API reports the order under `/orders/mine` with status `confirmed` and the same `ref_code` visible through `/orders/{id}`. |
+
+The `e2e` container ships with Playwright + chromium pre-installed
+(`Dockerfile.e2e` uses `mcr.microsoft.com/playwright:v1.47.2-jammy`).
+Nothing is installed on the host or at test time.
+
+```bash
+# Run the whole E2E suite (part of ./run_tests.sh step 7).
+docker compose -f docker-compose.yml \
+               -f docker-compose.dev.yml \
+               -f docker-compose.tests.yml \
+               run --rm e2e playwright test
+
+# Run a single spec or grep by title.
+docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.tests.yml \
+    run --rm e2e playwright test 02-requisition-create.spec.ts
+
+# Open the HTML report after a run (report is mounted into ./e2e/playwright-report).
+xdg-open e2e/playwright-report/index.html
+```
+
+Each spec asserts **both UI and backend outcomes** — never just "the page
+loaded".  If a UI selector drifts, the spec's accompanying signed-API probe
+fails with a precise message, so regressions surface as actionable errors.
 
 ---
 

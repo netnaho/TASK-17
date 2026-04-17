@@ -28,3 +28,9 @@ web-sys = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 shared = { workspace = true }
+
+[dev-dependencies]
+# Used by the frontend unit tests under `tests/*.test.rs`.  Tests are gated to
+# `target_arch = "wasm32"` so a host-only `cargo check` does not try to build
+# them; they run via `wasm-pack test` inside the frontend container.
+wasm-bindgen-test = "0.3"

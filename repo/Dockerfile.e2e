@@ -1,0 +1,28 @@
+# SilverOak — Playwright E2E runner image.
+#
+# Based on the official Microsoft Playwright image: ships chromium, firefox,
+# webkit, and every system font / codec Playwright needs.  The project's
+# Playwright dependency is installed at image build time so there is no
+# install step at test time (strict "no runtime installs" compliance).
+FROM mcr.microsoft.com/playwright:v1.47.2-jammy
+
+WORKDIR /e2e
+
+# Copy just the manifest first so this layer caches when only test sources change.
+COPY e2e/package.json ./package.json
+# Install Playwright's node deps into /e2e/node_modules.  `npm ci` would need
+# a lock file; `npm install` is reproducible from package.json alone because
+# we pin the playwright version explicitly.
+RUN npm install --no-audit --no-fund --silent
+
+# Embed the specs in the image so the container is self-contained for CI.
+# Local iterative runs can override by bind-mounting ./e2e/tests via the
+# compose overlay.
+COPY e2e/playwright.config.ts ./playwright.config.ts
+COPY e2e/tests ./tests
+
+# Playwright's default headless chromium writes to /root/.cache — keep that
+# inside the container.  No host volume needed.
+ENV CI=1
+
+CMD ["npx", "playwright", "test"]

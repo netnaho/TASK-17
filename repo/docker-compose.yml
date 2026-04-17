@@ -35,7 +35,7 @@ services:
       # AES-256-GCM key for field-level encryption of wellness notes.
       # This is a DEV-ONLY fallback — generate a real 32-byte key for production:
       #   openssl rand -base64 32
-      SILVEROAK_FIELD_KEY: "c2lsdmVyb2FrLWRldi1rZXktTk9ULUZPUi1QUk9EVUNUSU9O"
+      SILVEROAK_FIELD_KEY: "c2lsdmVyb2FrLWRldi1rZXktMzJieXRlcy0tZGVtby0="
       COOKIE_SECURE: "false"
       # Rate limits: conservative secure defaults. Override in docker-compose.dev.yml
       # for higher throughput during local development and testing.
@@ -69,7 +69,7 @@ services:
     environment:
       DATABASE_URL: postgres://silveroak:silveroak_dev@postgres:5432/silveroak
       RUST_LOG: info,backend_worker=debug
-      SILVEROAK_FIELD_KEY: "c2lsdmVyb2FrLWRldi1rZXktTk9ULUZPUi1QUk9EVUNUSU9O"
+      SILVEROAK_FIELD_KEY: "c2lsdmVyb2FrLWRldi1rZXktMzJieXRlcy0tZGVtby0="
     depends_on:
       postgres:
         condition: service_healthy

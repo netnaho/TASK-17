@@ -24,7 +24,7 @@
 #   20. Delete cascade: student then class then semester then department
 set -euo pipefail
 
-API_BASE="${API_BASE:-http://localhost:8080}"
+API_BASE="${API_BASE:-http://localhost:8080/api/v1}"
 PASS_DEFAULT="ChangeMeNow!2025"
 
 red()   { printf "\033[31m%s\033[0m\n" "$*"; }
@@ -92,7 +92,7 @@ login() {
   local email="$1"
   curl -sS -X POST -H 'content-type: application/json' \
     -d "{\"email\":\"$email\",\"password\":\"$PASS_DEFAULT\"}" \
-    "${API_BASE}/api/v1/auth/login"
+    "${API_BASE}/auth/login"
 }
 
 # ── bootstrap tokens ───────────────────────────────────────────────────────

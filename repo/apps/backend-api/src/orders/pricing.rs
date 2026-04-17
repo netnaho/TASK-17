@@ -414,11 +414,15 @@ mod tests {
 
     #[test]
     fn threshold_price_formula_correct() {
-        // 10% off (1000 bps) on 499 cents → 449
+        // 10% off (1000 bps) on 499 cents: `base - (base * bps / 10000)` with
+        // integer division gives 499 − (499_000 / 10_000) = 499 − 49 = 450.
+        // The truncation-towards-zero is deliberate and matches the discount
+        // computation in `resolve_line_price`, so callers never get charged
+        // less than the rounded-down amount.
         let base: i64 = 499;
         let bps: i64 = 1000;
         let discounted = base - (base * bps / 10000);
-        assert_eq!(discounted, 449);
+        assert_eq!(discounted, 450);
     }
 
     #[test]

@@ -48,7 +48,13 @@ fn health_status_json_round_trip() {
         version: "0.1.0",
     };
     let json = serde_json::to_string(&original).expect("serialize");
-    let decoded: shared::HealthStatus = serde_json::from_str(&json).expect("deserialize");
+    // `HealthStatus` fields are `&'static str`, so the JSON buffer must outlive
+    // the deserialised value for the full `'static` lifetime.  `Box::leak`
+    // gives a `&'static str` at the cost of a tiny, one-off allocation — fine
+    // in a unit test and avoids changing the public struct shape.
+    let json_static: &'static str = Box::leak(json.into_boxed_str());
+    let decoded: shared::HealthStatus =
+        serde_json::from_str(json_static).expect("deserialize");
     assert_eq!(decoded.status, original.status);
     assert_eq!(decoded.version, original.version);
 }

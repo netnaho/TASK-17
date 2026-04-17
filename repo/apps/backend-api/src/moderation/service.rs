@@ -414,7 +414,7 @@ mod tests {
 
     // ── severity ranking ──────────────────────────────────────────────────────
 
-    fn dominant_severity(pairs: &[(&str, &str)]) -> &'static str {
+    fn dominant_severity<'a>(pairs: &'a [(&'a str, &'a str)]) -> &'a str {
         pairs
             .iter()
             .map(|(_, s)| *s)

@@ -1,0 +1,45 @@
+# SilverOak — test-runner image.
+#
+# Contains every tool the test suites need, so the host only needs Docker:
+#   - rustc / cargo              (backend unit tests + static checks)
+#   - bash, curl, jq, openssl, python3   (API test scripts)
+#   - wget                       (health probes)
+#   - wasm-pack + wasm32 target  (frontend unit tests)
+#
+# Pinned to rust:1.89-slim:
+#   - 1.82 is too old — a transitive dep (`base64ct`) requires `edition2024`.
+#   - 1.95's default `rust-lld` linker fails to resolve a cross-cgu symbol when
+#     building backend-api tests (rustls transitive dep), so we stay on the
+#     previous stable series where the system linker is still `cc`.
+FROM rust:1.89-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        bash curl jq openssl python3 ca-certificates pkg-config libssl-dev wget gcc \
+ && rm -rf /var/lib/apt/lists/*
+
+# Pre-bake the wasm toolchain so the README and `run_tests.sh` never run an
+# install step at test time.  `wasm-pack` is installed into /usr/local/bin via
+# the official install script (no compilation step, no cargo-install).
+RUN rustup target add wasm32-unknown-unknown \
+ && curl -fsSL https://rustwasm.github.io/wasm-pack/installer/init.sh \
+      | sh -s -- -f
+
+# Ensure cargo / rustc are available in the minimal non-login PATH that the
+# compose `entrypoint: bash -c` uses.  The base image sets CARGO_HOME and
+# prepends `/usr/local/cargo/bin` to PATH, but we make it explicit here so the
+# runner works even if downstream `environment:` overrides override CARGO_HOME.
+RUN ln -sf /usr/local/cargo/bin/cargo  /usr/local/bin/cargo  \
+ && ln -sf /usr/local/cargo/bin/rustc  /usr/local/bin/rustc  \
+ && ln -sf /usr/local/cargo/bin/rustup /usr/local/bin/rustup \
+ && ln -sf /usr/local/cargo/bin/rustdoc /usr/local/bin/rustdoc
+
+WORKDIR /workspace
+
+ENV CARGO_TERM_COLOR=always
+ENV RUSTFLAGS=""
+ENV PATH=/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Default: print a short banner.  `run_tests.sh` overrides CMD with the real
+# test invocation.
+CMD ["bash", "-c", "echo 'silveroak tests-runner image ready'"]

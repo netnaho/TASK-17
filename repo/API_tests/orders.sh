@@ -330,29 +330,35 @@ call POST /api/v1/orders/cart/delivery "$MED_TOKEN" "$MED_KEY" \
 code=$(call POST /api/v1/orders/confirm "$MED_TOKEN" "$MED_KEY" '{}')
 [[ "$code" == "400" ]] && ok "stale snapshot → 400" || bad "got $code"
 
-# ---- 19: insufficient stock → rollback ----
-say "19. insufficient stock → confirm fails, stock unchanged"
-# Use a product and request more than available (update qty to absurd then verify)
-# First add GFT-002 (Small Flower Bouquet, stock=20) with qty=5 (max allowed)
-PROD_GFT002=$(call GET /api/v1/orders/products "$MED_TOKEN" "$MED_KEY" >/dev/null \
-  && jq -r '.[] | select(.sku=="GFT-002") | .id' /tmp/so_body)
-# Since we can only add max 5 per day, create a scenario where stock is checked
-# against a freshly seeded product with 20 stock.
-# Stock = 20, request 5 → should succeed.  We want rollback so we fake low stock.
-# Instead test: verify succeeds but then we manually drain stock via a parallel confirm.
-# Simpler: use a product we already purchased 5 of (daily limit), re-verify for new cart.
-# Just verify that a second medical buy of 5 more (same SKU same day) fails limit.
+# ---- 19: verify guards — empty cart + per-line quantity cap ----
+say "19. verify blocks empty cart (deterministic edge)"
+# Empty-cart verify is the one pre-check that is always deterministic
+# regardless of env overrides (dev overlay raises DAILY_LIMIT_PER_SKU to 500,
+# which hides the daily-limit assertion in step 13 under test overlay).
+#
+# Clear medical's cart, remove delivery by setting pickup (benign), and
+# verify: empty lines must return 400 with a clear message.
 call POST /api/v1/orders/cart/lines "$MED_TOKEN" "$MED_KEY" \
-  "{\"product_id\":\"$PROD_CAN001\",\"quantity\":5}" >/dev/null
+  "{\"product_id\":\"$PROD_CAN001\",\"quantity\":0}" >/dev/null 2>&1 || true
+call POST /api/v1/orders/cart/lines "$MED_TOKEN" "$MED_KEY" \
+  "{\"product_id\":\"$PROD_CAN002\",\"quantity\":0}" >/dev/null 2>&1 || true
+call POST /api/v1/orders/cart/lines "$MED_TOKEN" "$MED_KEY" \
+  "{\"product_id\":\"$PROD_CAN003\",\"quantity\":0}" >/dev/null 2>&1 || true
+# Make sure a delivery method is set — otherwise verify fails for a different
+# reason (tested in step 14) and we wouldn't be proving the empty-cart guard.
 call POST /api/v1/orders/cart/delivery "$MED_TOKEN" "$MED_KEY" \
   "{\"delivery_method_id\":\"$DM_PICKUP\"}" >/dev/null
 code=$(call POST /api/v1/orders/verify "$MED_TOKEN" "$MED_KEY" '{}')
-# medical already bought 1× CAN-001; 5 more = 6 total → over daily limit
-[[ "$code" == "400" ]] && ok "verify blocks (daily limit exceeded after previous confirm)" \
-  || { ok "verify passes (test env reset stock tracking)"; }
-# Clean up
-call POST /api/v1/orders/cart/lines "$MED_TOKEN" "$MED_KEY" \
-  "{\"product_id\":\"$PROD_CAN001\",\"quantity\":0}" >/dev/null
+[[ "$code" == "400" ]] && ok "empty-cart verify → 400" \
+  || bad "expected 400, got $code body=$(cat /tmp/so_body)"
+
+say "19b. set_line cap is enforced deterministically (qty>5 → 400)"
+# This is independent of DAILY_LIMIT_PER_SKU and proves the per-line cap is
+# always enforced at the set_line edge, even under the dev overlay.
+code=$(call POST /api/v1/orders/cart/lines "$MED_TOKEN" "$MED_KEY" \
+  "{\"product_id\":\"$PROD_CAN001\",\"quantity\":6}")
+[[ "$code" == "400" ]] && ok "qty>5 at set_line → 400" \
+  || bad "expected 400, got $code body=$(cat /tmp/so_body)"
 
 # ---- 20: 404 on unknown order ----
 say "20. 404 on unknown order id"

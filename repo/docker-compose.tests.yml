@@ -1,0 +1,87 @@
+# SilverOak — test runner overlay.
+#
+# Adds a `tests` service that bundles everything the backend unit tests and
+# API integration scripts need (rustc, cargo, bash, curl, jq, openssl, python).
+# The host only needs Docker — no local cargo / jq / curl / openssl toolchain.
+#
+# Usage via `run_tests.sh` (preferred).  Direct invocation:
+#
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.dev.yml \
+#                  -f docker-compose.tests.yml \
+#                  run --rm tests <command>
+#
+# The service joins the same network as `backend-api` so API tests can reach
+# `http://backend-api:8080/api/v1` by service name.
+services:
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+    image: silveroak/tests-runner:latest
+    container_name: silveroak_tests
+    # Profiles keep the service out of the normal `up` lifecycle.  Only
+    # `docker compose --profile tests` or `docker compose run tests` starts it.
+    profiles: ["tests"]
+    environment:
+      # API tests resolve the backend via the compose network — override to
+      # http://localhost:8080 if running standalone.
+      API_BASE: ${API_BASE:-http://backend-api:8080/api/v1}
+      DATABASE_URL: postgres://silveroak:silveroak_dev@postgres:5432/silveroak
+      # Keep the compile artefacts on a named volume so repeat runs are fast.
+      CARGO_HOME: /cargo-cache
+      CARGO_TARGET_DIR: /target-cache
+    volumes:
+      - ./:/workspace
+      - tests_cargo_cache:/cargo-cache
+      - tests_target_cache:/target-cache
+    working_dir: /workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Keep the container alive for `docker compose run --rm tests …` invocations.
+    # `run_tests.sh` executes individual commands against this image, so no
+    # long-running entrypoint is required.  We use `bash -c` (non-login) so the
+    # PATH from the Dockerfile (including /usr/local/cargo/bin) is inherited.
+    entrypoint: ["bash", "-c"]
+    command: ["echo silveroak tests-runner; tail -f /dev/null"]
+
+  e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    image: silveroak/e2e-runner:latest
+    container_name: silveroak_e2e
+    profiles: ["tests"]
+    environment:
+      # The e2e tests drive the SPA through the nginx proxy, so every request
+      # goes through the same path a real user would (proxy → frontend +
+      # proxy → backend-api).  BASE_URL points at the internal compose DNS.
+      BASE_URL: ${E2E_BASE_URL:-http://proxy:80}
+      CI: "1"
+    # Mount ONLY the tests directory (not the full e2e dir) so local edits to
+    # specs land without a rebuild — but `node_modules` stays inside the image,
+    # pre-installed at build time.  Editing `package.json` requires a rebuild
+    # (`REBUILD_TESTS=1 ./run_tests.sh`), which is intentional.
+    volumes:
+      - ./e2e/tests:/e2e/tests:ro
+      - ./e2e/playwright.config.ts:/e2e/playwright.config.ts:ro
+      - ./e2e/playwright-report:/e2e/playwright-report
+    depends_on:
+      backend-api:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+      proxy:
+        condition: service_started
+    working_dir: /e2e
+    # `docker compose run --rm e2e …` overrides the command with the actual
+    # invocation from `run_tests.sh`.  Default is `playwright test`.
+    entrypoint: ["npx"]
+    command: ["playwright", "test"]
+
+volumes:
+  tests_cargo_cache:
+    name: silveroak_tests_cargo_cache
+  tests_target_cache:
+    name: silveroak_tests_target_cache
